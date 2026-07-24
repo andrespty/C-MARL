@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-from misc import sample_types_batched, belief_features_batched, sample_batched
+from Cooperative_MARL.sandboxes.test1.misc import sample_types_batched, belief_features_batched, sample_batched
 
 def make_belief_step(agents):
     """Build the compiled single-step GRU fn bound to these agents' weights."""
