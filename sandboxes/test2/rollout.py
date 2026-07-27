@@ -10,8 +10,8 @@ def take_gru_step(agents):
         return agents.belief_head(out), new_states[0]
     return belief_step
 
-def ego_feats(state_oh, prev_actions, cfg):
-    B, N, A = state_oh.shape[0], cfg.N, cfg.n_actions
+def ego_feats(state_oh, prev_actions, game):
+    B, N, A = state_oh.shape[0], game.N, game.n_actions
     pa  = np.eye(A)[prev_actions]                                  # (B, N, A) one-hot
     ego = np.stack([np.roll(pa, -i, axis=1) for i in range(N)], 1) # (B, N, N, A)  slot 0 = "me"
     ego = ego.reshape(B, N, N * A)
@@ -19,37 +19,36 @@ def ego_feats(state_oh, prev_actions, cfg):
     f   = np.concatenate([st, ego], axis=2)                        # (B, N, feat_dim)
     return f.reshape(B * N, -1).astype(np.float32)                 # (B*N, feat_dim)
 
-def run_episodes(env_cls, cfg, B, agents, belief_step, hidden=128):
+def run_episodes(game, agents, belief_step, hidden=128):
     """Run B episodes in parallel. Returns dict of (B, T, ...) arrays."""
-    env = env_cls(cfg, B)
-    theta = generate_types(cfg, B)
-    prev_actions = np.zeros((B, cfg.N), dtype=int)
-    h = tf.zeros((B * cfg.N, hidden))
+    theta = generate_types(game)
+    prev_actions = np.zeros((game.B, game.N), dtype=int)
+    h = tf.zeros((game.B * game.N, hidden))
     S_state, S_belief, S_actions, S_reward, S_feat = [], [], [], [], []
 
-    for t in range(cfg.ep_len):
-        obs_all = env._obs()
+    for t in range(game.ep_len):
+        obs_all = game._obs()
         state_oh = obs_all[:, 0, :]
 
         # Compute belief based on observations
-        f = ego_feats(state_oh, prev_actions, cfg)
+        f = ego_feats(state_oh, prev_actions, game)
         b_tf, h = belief_step(tf.constant(f), h)
         h_np = h.numpy()
 
         # cooperative actions: policy conditions on h (amortized belief)
-        state_rep = np.repeat(state_oh, cfg.N, axis=0)   # (B*N, n_states)
+        state_rep = np.repeat(state_oh, game.N, axis=0)   # (B*N, n_states)
         c_logits  = agents.policy([state_rep, h_np]).numpy()      # (B*N, A)
-        a_coop    = choose_action(c_logits).reshape(B, cfg.N)
+        a_coop    = choose_action(c_logits).reshape(game.B, game.N)
         
         # --- adversary actions: one batched call, one batched sample ---
-        a_logits = agents.adversary(obs_all.reshape(B*cfg.N, cfg.n_states)).numpy()  # (B*N, A)
-        a_adv    = choose_action(a_logits).reshape(B, cfg.N)                        # (B, N)
+        a_logits = agents.adversary(obs_all.reshape(game.B*game.N, game.n_states)).numpy()  # (B*N, A)
+        a_adv    = choose_action(a_logits).reshape(game.B, game.N)                        # (B, N)
 
         # --- apply corruption ---
         actions = np.where(theta == 1, a_adv, a_coop)
 
-        _, r, done = env.step(actions)
-        S_state.append(state_oh); S_belief.append(b_tf.numpy().reshape(B, cfg.N, cfg.N))
+        _, r, done = game.step(actions)
+        S_state.append(state_oh); S_belief.append(b_tf.numpy().reshape(game.B, game.N, game.N))
         S_actions.append(actions.copy()); S_reward.append(r); S_feat.append(f)
         prev_actions = actions
         if done: break
@@ -62,14 +61,14 @@ def run_episodes(env_cls, cfg, B, agents, belief_step, hidden=128):
     )
 
 
-def random_rollout(env, cfg, B):
+def random_rollout(game, B):
     """B episodes, all agents act randomly. Returns (mean per-step reward per env (B,), theta (B,N))."""
-    theta = generate_types(cfg, B)          # (B, N)
+    theta = generate_types(game, B)          # (B, N)
     total = np.zeros(B, dtype=np.float32)
-    for _ in range(cfg.ep_len):
-        actions = np.random.randint(cfg.n_actions, size=(B, cfg.N))   # (B, N)
-        _, r, done = env.step(actions)            # r: (B,)
+    for _ in range(game.ep_len):
+        actions = np.random.randint(game.n_actions, size=(B, game.N))   # (B, N)
+        _, r, done = game.step(actions)            # r: (B,)
         total += r
         if done:
             break
-    return total / cfg.ep_len, theta
+    return total / game.ep_len, theta
