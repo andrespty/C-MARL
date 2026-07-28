@@ -21,6 +21,7 @@ def ego_feats(state_oh, prev_actions, game):
 
 def run_episodes(game, agents, belief_step, hidden=128):
     """Run B episodes in parallel. Returns dict of (B, T, ...) arrays."""
+    game.reset()
     theta = generate_types(game)
     prev_actions = np.zeros((game.B, game.N), dtype=int)
     h = tf.zeros((game.B * game.N, hidden))

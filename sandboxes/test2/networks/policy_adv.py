@@ -19,8 +19,7 @@ def _adversary_train_step(state_rep, actions_flat, weight, norm, adversary, opt)
         lp = tf.gather(logp, actions_flat, batch_dims=1)
         loss = tf.reduce_sum(tf.stop_gradient(weight) * lp) / norm   # + sign: adversary minimizes team return
     grads = tape.gradient(loss, adversary.trainable_variables)
-    opt.apply_gradients(zip(grads, adversary.trainable_variables))
-    return loss
+    return loss, grads
 
 def update_adversary(traj, adv, agents, game):
     """Policy gradient, adversary only."""
@@ -35,9 +34,10 @@ def update_adversary(traj, adv, agents, game):
     weight       = (theta * adv_flat[:, None]).reshape(B*T*game.N).astype(np.float32)
     norm         = np.float32(np.sum(theta) + 1e-8)
 
-    loss = _adversary_train_step(
+    loss, grads = _adversary_train_step(
         tf.constant(state_rep), tf.constant(actions_flat),
         tf.constant(weight), tf.constant(norm),
         agents.adversary, agents.opt_adv
     )
+    agents.opt_adv.apply_gradients(zip(grads, agents.adversary.trainable_variables))
     return float(loss)

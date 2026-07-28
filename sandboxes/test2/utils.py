@@ -15,6 +15,6 @@ def compute_advantages_batched(traj, agents, cfg):
     G = compute_returns_batched(traj['reward'], cfg.gamma)
     state_flat = traj['state'].reshape(B*T, cfg.n_states)
     theta_flat = traj['theta'].reshape(B*T, cfg.N).astype(np.float32)   # true types — centralized baseline
-    V = agents.critic([state_flat, theta_flat]).numpy().reshape(B, T)
+    V = agents.value([state_flat, theta_flat]).numpy().reshape(B, T)
     adv = G - V
     return G, adv
