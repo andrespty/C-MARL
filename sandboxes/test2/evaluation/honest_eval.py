@@ -1,12 +1,12 @@
-# evaluation.py
 import numpy as np
 import tensorflow as tf
 from dataclasses import replace
 
-from networks.policy_adv import build_adversary, update_adversary
+from networks.adversary import build_adversary, update_adversary
 from networks.value_net import build_value_net, update_value_net
-from rollout import run_episodes, take_gru_step
-from utils import compute_advantages_batched
+from core.rollout import run_episodes
+from core.utils import compute_advantages_batched
+
 
 def evaluate_robustness(game, trained_agents, belief_step, n_iters=2000,
                         hidden=128, lr_adv=1e-3, lr_value=5e-4, log_every=100):
@@ -32,7 +32,7 @@ def evaluate_robustness(game, trained_agents, belief_step, n_iters=2000,
     curve = []
     for it in range(1, n_iters + 1):
         traj = run_episodes(game, eval_agents, belief_step, hidden)
-        G, adv = compute_advantages_batched(traj, eval_agents, game)   # your existing fn
+        G, adv = compute_advantages_batched(traj, eval_agents, game)
 
         update_adversary(traj, adv, eval_agents, game)
         update_value_net(traj, G, eval_agents, game)   # attacker's own critic learns

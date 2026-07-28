@@ -1,14 +1,14 @@
 import numpy as np
 import tensorflow as tf
-from data_generation import generate_types, construct_belief_input, choose_action
+from core.utils import generate_types, choose_action
 
-def take_gru_step(agents):
-    """Build the compiled single-step GRU fn bound to these agents' weights."""
-    @tf.function(reduce_retracing=True)
-    def belief_step(feat_t, h_prev):
-        out, new_states = agents.belief_cell(feat_t, states=[h_prev])
-        return agents.belief_head(out), new_states[0]
-    return belief_step
+
+def take_belief_step(agents, belief_module):
+    """Build the compiled single-step belief recurrence bound to these agents'
+    weights, for whichever belief_module (factored_sigmoid / categorical_eirmappo)
+    is active."""
+    return belief_module.make_belief_step(agents.belief_cell, agents.belief_head)
+
 
 def ego_feats(state_oh, prev_actions, game):
     B, N, A = state_oh.shape[0], game.N, game.n_actions
@@ -18,6 +18,7 @@ def ego_feats(state_oh, prev_actions, game):
     st  = np.repeat(state_oh[:, None, :], N, axis=1)               # (B, N, n_states)
     f   = np.concatenate([st, ego], axis=2)                        # (B, N, feat_dim)
     return f.reshape(B * N, -1).astype(np.float32)                 # (B*N, feat_dim)
+
 
 def run_episodes(game, agents, belief_step, hidden=128):
     """Run B episodes in parallel. Returns dict of (B, T, ...) arrays."""
@@ -33,14 +34,15 @@ def run_episodes(game, agents, belief_step, hidden=128):
 
         # Compute belief based on observations
         f = ego_feats(state_oh, prev_actions, game)
-        b_tf, h = belief_step(tf.constant(f), h)
-        h_np = h.numpy()
+        policy_input, h, b_probs = belief_step(tf.constant(f), h)
+        policy_input_np = policy_input.numpy()
 
-        # cooperative actions: policy conditions on h (amortized belief)
+        # cooperative actions: policy conditions on the belief representation
+        # (raw hidden state for factored belief, softmax probs for categorical belief)
         state_rep = np.repeat(state_oh, game.N, axis=0)   # (B*N, n_states)
-        c_logits  = agents.policy([state_rep, h_np]).numpy()      # (B*N, A)
+        c_logits  = agents.policy([state_rep, policy_input_np]).numpy()      # (B*N, A)
         a_coop    = choose_action(c_logits).reshape(game.B, game.N)
-        
+
         # --- adversary actions: one batched call, one batched sample ---
         a_logits = agents.adversary(obs_all.reshape(game.B*game.N, game.n_states)).numpy()  # (B*N, A)
         a_adv    = choose_action(a_logits).reshape(game.B, game.N)                        # (B, N)
@@ -49,7 +51,7 @@ def run_episodes(game, agents, belief_step, hidden=128):
         actions = np.where(theta == 1, a_adv, a_coop)
 
         _, r, done = game.step(actions)
-        S_state.append(state_oh); S_belief.append(b_tf.numpy().reshape(game.B, game.N, game.N))
+        S_state.append(state_oh); S_belief.append(b_probs.numpy().reshape(game.B, game.N, -1))
         S_actions.append(actions.copy()); S_reward.append(r); S_feat.append(f)
         prev_actions = actions
         if done: break
@@ -64,7 +66,8 @@ def run_episodes(game, agents, belief_step, hidden=128):
 
 def random_rollout(game, B):
     """B episodes, all agents act randomly. Returns (mean per-step reward per env (B,), theta (B,N))."""
-    theta = generate_types(game, B)          # (B, N)
+    game.reset()
+    theta = generate_types(game)             # (B, N)
     total = np.zeros(B, dtype=np.float32)
     for _ in range(game.ep_len):
         actions = np.random.randint(game.n_actions, size=(B, game.N))   # (B, N)
