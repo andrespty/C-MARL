@@ -4,7 +4,6 @@ from networks.policy import build_policy
 from networks.adversary import build_adversary
 from networks.value_net import build_value_net
 
-
 @dataclass
 class Agents:
     policy: object
@@ -17,7 +16,6 @@ class Agents:
     opt_belief: object
     belief_cell: object   # recurrent cell for single-step rollout (GRUCell)
     belief_head: object   # belief output layer (sigmoid or softmax head)
-
 
 def build_agents(game, belief_module, hidden=128, lr_policy=5e-4, lr_adv=1e-3,
                  lr_critic=5e-4, lr_belief=5e-4):

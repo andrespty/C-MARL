@@ -6,13 +6,11 @@ optimization variants (extragradient, energy method -- see docs/project_goals.md
 Stages 1-3) get compared against, so avoid editing this file once it's
 validated -- add a new algorithms/*.py instead."""
 import time
-
 from core.rollout import run_episodes
-from core.utils import compute_advantages_batched
+from core.utils import compute_advantages_batched, compute_gae
 from networks.policy import update_policy
 from networks.adversary import update_adversary
 from networks.value_net import update_value_net
-
 
 def train(env_cls, agents, belief_step, belief_module, B=1000, n_iters=1000,
           team_interval=1, log_every=50, hidden=128):
@@ -21,12 +19,13 @@ def train(env_cls, agents, belief_step, belief_module, B=1000, n_iters=1000,
     game = env_cls(B)
     for it in range(1, n_iters + 1):
         traj = run_episodes(game, agents, belief_step, hidden)
-        G, adv = compute_advantages_batched(traj, agents, game)
+        G, adv = compute_gae(traj, agents, game)
         update_adversary(traj, adv, agents, game)
         if it % team_interval == 0:
             update_value_net(traj, G, agents, game)
             belief_module.update_belief(traj, agents, game)
-            update_policy(traj, adv, agents, game, belief_module, hidden)
+            for _ in range(5):                          # PPO epochs
+                update_policy(traj, adv, agents, game, belief_module, hidden)
         if it % log_every == 0:
             game2 = env_cls(B)
             ev = run_episodes(game2, agents, belief_step, hidden)

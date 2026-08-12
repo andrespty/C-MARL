@@ -2,13 +2,13 @@ import numpy as np
 
 class ToyGame:
     """B copies of the toy game, stepped in parallel."""
-    def __init__(self, B):
+    def __init__(self, B, ep_len=10, p_no_adv=0.5):
         self.N = 2
         self.n_actions = 2
         self.n_states = 2
-        self.ep_len = 100
         self.gamma = 0.99
-        self.p_no_adv = 0.5
+        self.ep_len = ep_len
+        self.p_no_adv = p_no_adv
         self.B = B
         self.reset()
 
@@ -24,13 +24,21 @@ class ToyGame:
         return np.repeat(oh[:, None, :], self.N, axis=1)
 
     def step(self, actions):
-        # actions: (B, N) perturbed actions
         a = actions.astype(int)
-        agree = (a[:, 0] == a[:, 1])                    # (B,) N=2 specialization
+        agree = (a[:, 0] == a[:, 1])
         in_s1 = (self.state == 0)
-        r = np.where(in_s1, agree.astype(np.float32),   # s1: reward if agree
-                            (~agree).astype(np.float32)) # s2: reward if differ
-        self.state = np.where(agree, 0, 1)              # transition
+        r = np.where(in_s1, agree.astype(np.float32), (~agree).astype(np.float32))
+
+        # transition (per your spec):
+        #   s1 & agree  -> s2   |   s1 & differ -> s1
+        #   s2 & differ -> s2   |   s2 & agree  -> s1
+        next_state = np.where(
+            in_s1,
+            np.where(agree, 1, 0),      # from s1: agree->s2(1), differ->stay s1(0)
+            np.where(agree, 0, 1),      # from s2: agree->s1(0), differ->stay s2(1)
+        )
+        self.state = next_state
+
         self.t += 1
         done = self.t >= self.ep_len
         return self._obs(), r, done
