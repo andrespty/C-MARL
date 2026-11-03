@@ -1,0 +1,70 @@
+\section{Introduction}
+\label{sec:intro}
+
+Cooperative multi-agent reinforcement learning (c-MARL) trains teams of agents
+that share a common reward, and is increasingly considered for systems such as
+robot swarms, autonomous vehicles, and sensor networks. Most methods assume that
+every teammate executes the learned cooperative policy. In practice an agent may
+be compromised or malfunction and behave arbitrarily, a \emph{Byzantine} failure
+\citep{lamport1982byzantine}. Because cooperative policies are trained to rely on
+their teammates, even a single such agent can collapse team performance.
+
+A principled response is to model this as a Bayesian game. Each agent is secretly
+assigned a type, cooperative or adversarial. Cooperative agents do not know who is
+compromised, so they maintain a \emph{belief} over their teammates' types, update
+it from observed behavior, and act on it. The resulting solution concept, an
+\emph{ex interim} robust Markov perfect Bayesian equilibrium, lets agents defend
+only when the evidence warrants it, rather than treating every teammate as a
+potential threat \citep{li2024byzantine,kazari2026bayesian}. Existing belief-based
+methods, however, assume that \emph{at most one} agent is compromised. Methods that
+tolerate several adversaries do so \emph{ex ante}, without inference over who they
+are \citep{phan2021radar}. Belief-based robustness against multiple adversaries
+remains open.
+
+A second difficulty is computational. The robust equilibrium is a saddle point:
+the team maximizes the shared return while the adversary minimizes it. Current
+methods find it with two-timescale gradient descent--ascent on policy-gradient
+objectives. In min--max problems such dynamics are known to cycle rather than
+converge \citep{mertikopoulos2018cycles}, and we observe exactly this behavior: the
+team's reward under attack oscillates and the final result depends on the seed and
+on when training stops. These methods also offer no observable signal that an
+equilibrium has been reached. Reward measured against a co-trained adversary can
+overstate robustness when that adversary is itself stale or cycling.
+
+\paragraph{Objective.}
+This work aims to make belief-based robust c-MARL both \emph{stable to train} and
+\emph{applicable to multiple adversaries}. Our approach is to replace saddle-point
+dynamics with the minimization of a single non-negative \emph{energy} that vanishes
+exactly at equilibrium. We build this energy from per-state optimality conditions.
+For each player, the Karush--Kuhn--Tucker conditions of choosing an action
+distribution reduce to sign and complementarity conditions on the advantage
+function. Under entropy regularization they reduce further to the residual
+$Q(s,a) - \tau \log \pi(a \mid s) - V(s) = 0$, whose joint solution is a quantal
+response equilibrium that approaches the robust equilibrium as $\tau \to 0$
+\citep{mckelvey1995quantal,nachum2017pcl}. The energy aggregates these residuals for
+the team and the adversary. Cooperative agents' residuals are evaluated on
+belief-averaged advantages, so the conditions reflect what an agent can actually
+know (ex interim rather than oracle optimality). A Bellman-consistency term keeps
+the critic faithful. Because training is now a single minimization, there are no
+rotational dynamics to cycle, and the energy's value serves as a convergence
+certificate.
+
+With a stable training procedure in hand, we extend the setting to $k$ independent,
+non-colluding adversaries among $N$ agents, using a factored belief that scales
+linearly in $N$. This lets us ask how inference and robustness degrade as the
+fraction $k/N$ of compromised agents grows, and whether learned teams exhibit a
+tolerance threshold analogous to the classical Byzantine fault-tolerance bound.
+
+\paragraph{Contributions.}
+% TODO: tighten once results exist; keep claims matched to what is shown.
+\begin{itemize}
+  \item A Bayesian formulation of robust c-MARL with $k$ independent Byzantine
+        agents, and the corresponding ex interim robust equilibrium.
+  \item An energy-based training method built from per-state (soft) KKT residuals,
+        belief-averaged advantages, and Bellman consistency, which provides a
+        convergence certificate.
+  \item A factored belief architecture whose cost is linear in the number of agents.
+  \item An empirical study comparing the method with gradient descent--ascent and
+        extragradient baselines under evaluation against freshly trained
+        adversaries, and characterizing robustness as a function of $k/N$.
+\end{itemize}
