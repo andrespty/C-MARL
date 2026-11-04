@@ -1,21 +1,23 @@
-"""Two-agent toy coordination game.
+"""Two-agent toy coordination game (Han et al., 2022), as used in EIR-MAPPO.
 
 Two states, two actions per agent, both agents fully observe the state.
 
-    State s0 (XNOR): reward 1 if the agents AGREE,  else 0.
-    State s1 (XOR) : reward 1 if the agents DIFFER, else 0.
+    State 0 (XNOR): reward 1 if the agents AGREE,  else 0.
+    State 1 (XOR) : reward 1 if the agents DIFFER, else 0.
 
-Transitions:
-    s0: agree  -> s1,  differ -> s0
-    s1: agree  -> s0,  differ -> s1
+Transitions (agreeing flips the state, differing keeps it):
+    s0: agree -> s1,  differ -> s0
+    s1: agree -> s0,  differ -> s1
 
-Robust value: if one agent is an adversary, it can hold the team to an
-expected reward of 0.5 per step by playing uniformly at random, so 0.5 is the
-best achievable reward under attack. Clean optimum is 1.0.
+Observation (same for both agents, same layout as the official code minus
+the agent ID, which TeamPolicy adds itself):
+    [state, last_state, last_action_agent0, last_action_agent1]
+At reset: last_state = state, last actions = 0 (as in the official code).
+
+Robust value under attack: 0.5 per step. Clean optimum: 1.0.
 """
 
 import torch
-import torch.nn.functional as F
 
 from cmarl.environments.base import EnvSpec, StepResult, VecEnv
 
@@ -28,31 +30,32 @@ class ToyGame(VecEnv):
         self.spec = EnvSpec(
             n_agents=2,
             n_actions=2,
-            obs_dim=2,        # one-hot state
-            state_dim=2,      # one-hot state
+            obs_dim=4,        # state, last state, 2 last actions
+            state_dim=4,      # the critic sees the same vector
             episode_length=episode_length,
         )
         self.t = 0
-        self.state = torch.zeros(num_envs, dtype=torch.long, device=self.device)  # (B,) ints in {0, 1}
+        self.state = torch.zeros(num_envs, dtype=torch.long, device=self.device)        # (B,)
+        self.last_state = torch.zeros(num_envs, dtype=torch.long, device=self.device)   # (B,)
+        self.last_actions = torch.zeros(num_envs, 2, dtype=torch.long, device=self.device)  # (B, 2)
 
     def reset(self) -> StepResult:
         self.t = 0
-        # Random initial state in each env.
         self.state = torch.randint(0, 2, (self.num_envs,), device=self.device)
+        self.last_state = self.state.clone()
+        self.last_actions = torch.zeros(self.num_envs, 2, dtype=torch.long, device=self.device)
         zeros = torch.zeros(self.num_envs, device=self.device)
         done = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         return StepResult(obs=self._obs(), state=self._state(), reward=zeros, done=done)
 
     def step(self, actions: torch.Tensor) -> StepResult:
-        # actions: (B, 2) long
-        agree = actions[:, 0] == actions[:, 1]       # (B,) bool
-        in_s0 = self.state == 0                      # (B,) bool
-
-        # Reward: agree in s0, differ in s1.
+        # actions: (B, 2) long, the executed actions
+        agree = actions[:, 0] == actions[:, 1]
+        in_s0 = self.state == 0
         reward = torch.where(in_s0, agree, ~agree).float()
 
-        # Transition: from s0, agree -> s1; from s1, agree -> s0; differing stays put.
-        # Agreeing flips the state, differing keeps it.
+        self.last_state = self.state
+        self.last_actions = actions.clone()
         self.state = torch.where(agree, 1 - self.state, self.state)
 
         self.t += 1
@@ -63,9 +66,13 @@ class ToyGame(VecEnv):
     # ----- helpers -----
 
     def _state(self) -> torch.Tensor:
-        """Global state as one-hot: (B, 2)."""
-        return F.one_hot(self.state, num_classes=2).float()
+        """[state, last_state, a0, a1] as floats: (B, 4)."""
+        return torch.cat([
+            self.state.unsqueeze(1),
+            self.last_state.unsqueeze(1),
+            self.last_actions,
+        ], dim=1).float()
 
     def _obs(self) -> torch.Tensor:
-        """Each agent sees the full state: (B, N, 2)."""
+        """Both agents see the same vector: (B, N, 4)."""
         return self._state().unsqueeze(1).expand(-1, self.spec.n_agents, -1)

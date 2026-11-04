@@ -87,3 +87,14 @@ def value_loss(value: torch.Tensor, target: torch.Tensor, mask: torch.Tensor | N
 def entropy_bonus(entropy: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
     """Average entropy. Subtract coef * this from the loss to encourage exploration."""
     return masked_mean(entropy, mask)
+
+
+def clipped_value_loss(value: torch.Tensor, value_old: torch.Tensor, target: torch.Tensor,
+                       clip: float, delta: float) -> torch.Tensor:
+    """MAPPO critic loss: Huber loss, with the new value kept within `clip` of the old one."""
+    import torch.nn.functional as F
+    value_old, target = value_old.detach(), target.detach()
+    value_clipped = value_old + (value - value_old).clamp(-clip, clip)
+    loss = F.huber_loss(value, target, delta=delta, reduction="none")
+    loss_clipped = F.huber_loss(value_clipped, target, delta=delta, reduction="none")
+    return torch.max(loss, loss_clipped).mean()

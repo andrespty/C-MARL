@@ -88,3 +88,44 @@ class IndependentK(TypePrior):
         support = torch.stack(rows)                        # (K, N)
         probs = torch.tensor(weights)
         return support, probs / probs.sum()                # normalize (the conditioning on |theta| <= k)
+
+
+class AdaptiveSingleAdversary(SingleAdversary):
+    """EIR-MAPPO's selection: each iteration picks ONE adversary index for all envs,
+    favouring the agent that currently does worst when attacked:
+        P(agent i) = softmax(-reward_when_i_attacked / temperature)
+
+    interval: set equal to GDAConfig.team_interval. On iterations where only the
+    adversary trains (iteration % interval != 0), EVERY env is attacked, as in the
+    official code. On team iterations, each env is attacked with prob 1 - p_no_adv.
+    """
+
+    def __init__(self, n_agents: int, p_no_adv: float = 0.5, interval: int = 1,
+                 temperature: float = 1.0, momentum: float = 0.9):
+        self.interval = interval
+        self.temperature = temperature
+        self.momentum = momentum
+        self.attacked_reward = torch.zeros(n_agents)
+        self.current = 0
+        self.iteration = 0
+        super().__init__(n_agents, p_no_adv)
+
+    def sample(self, num_envs: int, device="cpu") -> torch.Tensor:
+        self.iteration += 1                                   # counts like GDA.iteration
+        weights = torch.softmax(-self.attacked_reward / self.temperature, dim=0)
+        self.current = torch.multinomial(weights, 1).item()
+
+        team_iteration = self.iteration % self.interval == 0
+        if team_iteration:
+            has_adv = torch.rand(num_envs) >= self.p_no_adv  # mixed clean / attacked
+        else:
+            has_adv = torch.ones(num_envs, dtype=torch.bool) # adversary-only: all attacked
+
+        theta = torch.zeros(num_envs, self.n_agents, dtype=torch.long)
+        theta[has_adv, self.current] = 1
+        return theta.to(device)
+
+    def record(self, reward_adv: float) -> None:
+        """Call once per iteration with the mean reward of attacked episodes."""
+        r = self.attacked_reward
+        r[self.current] = self.momentum * r[self.current] + (1 - self.momentum) * reward_adv

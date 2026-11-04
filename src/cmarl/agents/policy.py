@@ -68,18 +68,23 @@ class TeamPolicy(CategoricalPolicy):
 
 class AdversaryPolicy(CategoricalPolicy):
     """Adversarial policy, shared by all compromised agents.
-
-    belief_dim = 0 -> observation only (fine for k = 1).
-    belief_dim > 0 -> also conditions on its belief about the others (k > 1).
-    """
+    Input: [obs | belief (if belief_dim > 0) | own agent ID]."""
 
     def __init__(self, spec: EnvSpec, belief_dim: int = 0,
                  hidden_sizes: Sequence[int] = (128, 128),
-                 activations=nn.ReLU):
+                 activations=nn.ReLU, use_agent_id: bool = True):
         super().__init__()
+        self.n_agents = spec.n_agents
         self.belief_dim = belief_dim
-        self.net = MLP(spec.obs_dim + belief_dim, spec.n_actions, hidden_sizes, activations)
+        self.use_agent_id = use_agent_id
+        in_dim = spec.obs_dim + belief_dim + (spec.n_agents if use_agent_id else 0)
+        self.net = MLP(in_dim, spec.n_actions, hidden_sizes, activations)
 
     def forward(self, obs: torch.Tensor, belief: torch.Tensor | None = None) -> torch.Tensor:
-        x = obs if self.belief_dim == 0 else torch.cat([obs, belief], dim=-1)
-        return self.net(x)
+        parts = [obs]
+        if self.belief_dim > 0:
+            parts.append(belief)
+        if self.use_agent_id:
+            ids = torch.eye(self.n_agents, device=obs.device)
+            parts.append(ids.expand(*obs.shape[:-1], self.n_agents))
+        return self.net(torch.cat(parts, dim=-1))

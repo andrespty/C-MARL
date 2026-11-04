@@ -62,6 +62,8 @@ class Algorithm(ABC):
             batch = collect(env, self.team, self.adversary, self.belief)
             logs = self.update(batch)
             logs.update(reward_stats(batch))
+            if hasattr(env.prior, "record") and "reward_adv" in logs:
+                env.prior.record(logs["reward_adv"])
             logs["iter"] = it
             history.append(logs)
             if it % log_every == 0:

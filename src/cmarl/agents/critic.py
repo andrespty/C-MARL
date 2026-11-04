@@ -20,15 +20,17 @@ from cmarl.nets.mlp import MLP
 
 
 class VCritic(nn.Module):
+    """V per agent from the same inputs as the team policy: [obs | belief | agent ID]."""
 
-    def __init__(self, spec: EnvSpec, hidden_sizes: Sequence[int] = (128, 128), activations=nn.ReLU):
+    def __init__(self, spec: EnvSpec, belief_dim: int,
+                 hidden_sizes: Sequence[int] = (128, 128), activations=nn.ReLU):
         super().__init__()
-        self.net = MLP(spec.state_dim + spec.n_agents + 1, 1, hidden_sizes, activations)   # +1 = time
+        self.n_agents = spec.n_agents
+        self.net = MLP(spec.obs_dim + belief_dim + spec.n_agents, 1, hidden_sizes, activations)
 
-    def forward(self, state, theta_ego, time):
-        # time: (..., 1), fraction of the episode elapsed, t / T
-        x = torch.cat([state, theta_ego.float(), time], dim=-1)
-        return self.net(x).squeeze(-1)
+    def forward(self, obs: torch.Tensor, belief: torch.Tensor) -> torch.Tensor:
+        ids = torch.eye(self.n_agents, device=obs.device).expand(*obs.shape[:-1], self.n_agents)
+        return self.net(torch.cat([obs, belief, ids], dim=-1)).squeeze(-1)
 
     
 
