@@ -84,7 +84,8 @@ class GDA(Algorithm):
 
         # 1. advantages
         with torch.no_grad():
-            z, _ = self.beliefs(batch)                          # (B, T, N, Z)
+            # z, _ = self.beliefs(batch)                          # (B, T, N, Z)
+            z = batch.z                                         # (B, T, N, Z) exactly what the policies saw
             v_old = self.critic(batch.obs, z)                   # (B, T, N), normalized scale
             v_real = self.value_norm.denormalize(v_old) if self.value_norm else v_old
             adv, ret = gae(batch.reward, v_real, cfg.gamma, cfg.lam)

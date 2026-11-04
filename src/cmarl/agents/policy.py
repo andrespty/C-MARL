@@ -55,7 +55,7 @@ class TeamPolicy(CategoricalPolicy):
         self.n_agents = spec.n_agents
         self.use_agent_id = use_agent_id
         in_dim = spec.obs_dim + belief_dim + (spec.n_agents if use_agent_id else 0)
-        self.net = MLP(in_dim, spec.n_actions, hidden_sizes, activations)
+        self.net = MLP(in_dim, spec.n_actions, hidden_sizes, activations, out_gain=0.01)
 
     def forward(self, obs: torch.Tensor, belief: torch.Tensor) -> torch.Tensor:
         # obs (..., N, obs_dim): the agent axis must be second to last.
@@ -78,7 +78,7 @@ class AdversaryPolicy(CategoricalPolicy):
         self.belief_dim = belief_dim
         self.use_agent_id = use_agent_id
         in_dim = spec.obs_dim + belief_dim + (spec.n_agents if use_agent_id else 0)
-        self.net = MLP(in_dim, spec.n_actions, hidden_sizes, activations)
+        self.net = MLP(in_dim, spec.n_actions, hidden_sizes, activations, out_gain=0.01)
 
     def forward(self, obs: torch.Tensor, belief: torch.Tensor | None = None) -> torch.Tensor:
         parts = [obs]

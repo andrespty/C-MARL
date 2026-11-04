@@ -22,19 +22,24 @@ def adversary_act(adversary: AdversaryPolicy, obs: torch.Tensor, z: torch.Tensor
 
 
 @torch.no_grad()
-def collect(env: ByzantineEnv, team: TeamPolicy, adversary: AdversaryPolicy, belief: Belief) -> Batch:
+def collect(env: ByzantineEnv, team: TeamPolicy, adversary: AdversaryPolicy, belief: Belief,
+            teacher_prob: float = 0.0) -> Batch:
+    """teacher_prob: probability, per step, of replacing the belief by the true types
+    (teacher forcing, as in the official EIR-MAPPO code). 0 = off."""
     B, N = env.num_envs, env.spec.n_agents
     r = env.reset()
     theta = r.theta                                              # (B, N)
     h = belief.initial_state(B, N, device=env.device)
     prev_actions = None
 
-    keys = ["obs", "state", "feat", "actions", "team_actions", "adv_actions", "logp", "reward", "done"]
+    keys = ["obs", "state", "feat", "actions", "team_actions", "adv_actions", "logp", "reward", "done", "z"]
     traj = {k: [] for k in keys}
 
     for t in range(env.spec.episode_length):
         feat = belief.features(r.obs, prev_actions, theta)        # (B, N, F)
         z, _, h = belief.step(feat, h)                           # z (B, N, Z)
+        if teacher_prob > 0 and torch.rand(()).item() < teacher_prob:
+            z = belief.true_input(theta)                         # teacher forcing: the truth, not the belief
 
         team_a, team_lp = team.act(r.obs, z)                     # (B, N), (B, N)
         adv_a, adv_lp = adversary_act(adversary, r.obs, z)
@@ -51,6 +56,7 @@ def collect(env: ByzantineEnv, team: TeamPolicy, adversary: AdversaryPolicy, bel
         traj["logp"].append(logp)
         traj["reward"].append(nxt.reward)
         traj["done"].append(nxt.done)
+        traj["z"].append(z)
 
         prev_actions = nxt.executed
         r = nxt

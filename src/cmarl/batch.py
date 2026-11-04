@@ -16,6 +16,7 @@ class Batch:
     logp: torch.Tensor         # (B, T, N)           log-prob of the executed action under the policy that chose it
     reward: torch.Tensor       # (B, T)              shared reward
     done: torch.Tensor         # (B, T) bool
+    z: torch.Tensor            # (B, T, N, Z)        policy input used in the rollout (belief, or truth if teacher-forced)
     theta: torch.Tensor        # (B, N) long         true types (constant within an episode)
 
     @property

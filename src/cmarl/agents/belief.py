@@ -120,6 +120,11 @@ class Belief(nn.Module):
     def accuracy(self, out: torch.Tensor, theta: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError
 
+    def true_input(self, theta: torch.Tensor) -> torch.Tensor:
+        """Policy input as if the belief were exactly right (teacher forcing).
+        theta (B, N) -> (B, N, Z)."""
+        raise NotImplementedError("teacher forcing needs CategoricalBelief with policy_input='probs'")
+
     # ----- shared helper -----
 
     def _own_type_mask(self, own_type: torch.Tensor) -> torch.Tensor:
@@ -158,6 +163,11 @@ class CategoricalBelief(Belief):
     def accuracy(self, out, theta):
         labels = self.labels(theta).unsqueeze(1)                      # (B, 1, N)
         return (out.argmax(-1) == labels).float().mean()
+
+    def true_input(self, theta):
+        if self.policy_input != "probs":
+            return super().true_input(theta)
+        return F.one_hot(self.labels(theta), self.out_dim).float()    # (B, N, K) one-hot of the truth
 
 
 class FactoredBelief(Belief):

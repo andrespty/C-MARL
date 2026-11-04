@@ -76,3 +76,14 @@ class ToyGame(VecEnv):
     def _obs(self) -> torch.Tensor:
         """Both agents see the same vector: (B, N, 4)."""
         return self._state().unsqueeze(1).expand(-1, self.spec.n_agents, -1)
+
+    def worst_case_actions(self, team_probs: torch.Tensor) -> torch.Tensor:
+        """White-box adversary used by the official code to select checkpoints.
+        Agent i, as adversary, knows its partner's action probabilities this step:
+            s0 (team wants to agree) : play the opposite of the partner's most likely action
+            s1 (team wants to differ): copy the partner's most likely action
+        team_probs (B, 2, A) -> actions (B, 2); entry i = what agent i plays as adversary.
+        """
+        partner_mode = team_probs.argmax(-1).flip(1)          # (B, 2) partner's most likely action
+        in_s0 = (self.state == 0).unsqueeze(1)                 # (B, 1)
+        return torch.where(in_s0, 1 - partner_mode, partner_mode)
