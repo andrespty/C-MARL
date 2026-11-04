@@ -85,6 +85,10 @@ class Algorithm(ABC):
                     self.best_score = logs["eval_score"]
                     self.best_state = copy.deepcopy(self.state_dict())
             logs["iter"] = it
+            history.append(logs)
+            if it % log_every == 0:
+                print(" | ".join(f"{k} {v:.3f}" if isinstance(v, float) else f"{k} {v}" for k, v in logs.items()))
+        return history
 
     # ----- saving -----
 
