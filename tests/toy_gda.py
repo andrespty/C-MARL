@@ -19,8 +19,9 @@ SEEDS = [0, 1, 2, 3, 4]
 
 def run(seed: int) -> dict:
     torch.manual_seed(seed)
-    env = ByzantineEnv(ToyGame(num_envs=40, episode_length=T),
-                       AdaptiveSingleAdversary(n_agents=2, temperature=1 / T, interval=INTERVAL))
+    env = ByzantineEnv(
+        ToyGame(num_envs=40, episode_length=T),
+        AdaptiveSingleAdversary(n_agents=2, temperature=1 / T, interval=INTERVAL))
     eval_env = ByzantineEnv(ToyGame(num_envs=40, episode_length=T), SingleAdversary(n_agents=2))
 
     belief = CategoricalBelief(env.spec, env.prior)
