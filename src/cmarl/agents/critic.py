@@ -35,15 +35,23 @@ class VCritic(nn.Module):
     
 
 class QCritic(nn.Module):
+    """Q per agent and per action, given the TRUE types (training only).
+
+    Input : [obs | egocentric types theta_ego (N) | agent ID (N)]
+    Output: Q_i(s, theta, a_i) for every action of agent i: (..., n_actions).
+    The agent axis of obs must be second to last, e.g. obs (B, T, N, obs_dim).
+    """
 
     def __init__(self, spec: EnvSpec, hidden_sizes: Sequence[int] = (128, 128), activations=nn.ReLU):
         super().__init__()
-        self.net = MLP(spec.state_dim + spec.n_agents, spec.n_actions, hidden_sizes, activations)
+        self.n_agents = spec.n_agents
+        self.net = MLP(spec.obs_dim + 2 * spec.n_agents + 1, spec.n_actions, hidden_sizes, activations)
 
-    def forward(self, state: torch.Tensor, theta_ego: torch.Tensor) -> torch.Tensor:
-        x = torch.cat([state, theta_ego.float()], dim=-1)
-        return self.net(x)                                   # (..., n_actions)
-
+    def forward(self, obs: torch.Tensor, theta_ego: torch.Tensor, time: torch.Tensor) -> torch.Tensor:
+        # time: (..., 1), fraction of the episode elapsed. Needed because returns depend on steps left.
+        ids = torch.eye(self.n_agents, device=obs.device).expand(*obs.shape[:-1], self.n_agents)
+        return self.net(torch.cat([obs, theta_ego.float(), ids, time], dim=-1))
+    
     # ----- helpers on a computed q -----
 
     @staticmethod
