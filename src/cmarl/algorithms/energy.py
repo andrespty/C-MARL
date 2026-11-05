@@ -23,8 +23,7 @@ from cmarl.agents.critic import QCritic
 from cmarl.agents.policy import AdversaryPolicy, TeamPolicy
 from cmarl.algorithms.base import Algorithm
 from cmarl.batch import Batch
-from cmarl.losses.energy import advantage, belief_average, kkt_energy, soft_energy
-from cmarl.losses.ppo import discounted_returns, masked_mean
+from cmarl.losses.energy import advantage, belief_average, kkt_energy, soft_energy, kl_energy
 from cmarl.utils.ego import egocentric
 from cmarl.losses.ppo import discounted_returns, masked_mean, normalize
 
@@ -55,8 +54,7 @@ class Energy(Algorithm):
         self.critic = critic
         self.cfg = config
         self.iteration = 0
-        self.opt_policy = torch.optim.Adam(
-            list(team.parameters()) + list(adversary.parameters()), lr=config.lr_policy)
+        self.opt_policy = torch.optim.Adam(list(team.parameters()) + list(adversary.parameters()), lr=config.lr_policy)
         self.opt_critic = self.make_optimizer(critic, config.lr_critic)
         self.opt_belief = self.make_optimizer(belief, config.lr_belief)
 
@@ -78,6 +76,13 @@ class Energy(Algorithm):
         p_team = self.team.distribution(batch.obs, batch.z).probs
         p_adv = self.adversary.distribution(*self.adversary_inputs(batch.obs, batch.z)).probs
         return torch.where((batch.theta == 1)[:, None, :, None], p_adv, p_team)
+
+    def _acting_log_probs(self, batch: Batch) -> torch.Tensor:
+        """log p of the policy each agent actually uses, from the logits (log_softmax):
+        exact even for tiny probabilities, and the gradient never vanishes. (B, T, N, A)."""
+        lp_team = self.team.log_probs_all(batch.obs, batch.z)
+        lp_adv = self.adversary.log_probs_all(*self.adversary_inputs(batch.obs, batch.z))
+        return torch.where((batch.theta == 1)[:, None, :, None], lp_adv, lp_team)
 
     @staticmethod
     def _time(batch: Batch) -> torch.Tensor:
@@ -119,9 +124,9 @@ class Energy(Algorithm):
                 target = discounted_returns(batch.reward, cfg.gamma)
                 target = target.unsqueeze(-1).expand_as(batch.actions).clone()
             else:
-                p_next = self._acting_probs(batch)[:, 1:]
-                v_next = (p_next * self._q_true(batch)[:, 1:]).sum(-1)  # (B, T-1, N)
-                target = batch.reward.unsqueeze(-1).expand_as(batch.actions).clone()
+                p_next = self._acting_probs(batch)[:, 1:]               # π^i(·|o_{t+1})  (B, T-1, N, A)
+                v_next = (p_next * self._q_true(batch)[:, 1:]).sum(-1)  # Σ_a' π Q        (B, T-1, N)
+                target = batch.reward.unsqueeze(-1).expand_as(batch.actions).clone()   # r_t for each agent  (B, T, N)
                 target[:, :-1] += cfg.gamma * v_next                     # last step: terminal
         for _ in range(cfg.critic_epochs):
             q_taken = self._q_true(batch).gather(-1, batch.actions.unsqueeze(-1)).squeeze(-1)
@@ -134,21 +139,24 @@ class Energy(Algorithm):
                 coef *= max(0.0, 1 - self.iteration / cfg.selection_decay_iters)
             q = self._q_belief(batch) if cfg.belief_averaged else self._q_true(batch)
         for _ in range(cfg.energy_epochs):
-            probs = self._acting_probs(batch)
+            log_probs = self._acting_log_probs(batch)                   # (B, T, N, A), with gradients
+            probs = log_probs.exp()
+            
             if cfg.residual == "soft":
-                psi = soft_energy(probs, q, sign, cfg.tau)               # (B, T, N)
+                psi = soft_energy(log_probs, q, sign, cfg.tau)           # (B, T, N)
+            elif cfg.residual == "kl":
+                psi = kl_energy(log_probs, q, sign, cfg.tau)
             else:
                 psi = kkt_energy(probs, q, sign)
             energy = psi.mean()
 
             # equilibrium selection: push the team toward higher-value equilibria
-            logp = torch.log(probs.gather(-1, batch.actions.unsqueeze(-1)).squeeze(-1).clamp_min(1e-12))
+            logp = log_probs.gather(-1, batch.actions.unsqueeze(-1)).squeeze(-1)
             a_taken = advantage(q, probs.detach()).gather(-1, batch.actions.unsqueeze(-1)).squeeze(-1)
             a_taken = normalize(a_taken, team_mask)                     # unit scale, like PPO
             selection = -masked_mean(logp * a_taken, team_mask)
 
             self._step(self.opt_policy, energy + coef * selection)
-            self._step(self.opt_policy, energy + cfg.selection_coef * selection)
             logs["energy"] = energy.item()
             logs["energy_team"] = masked_mean(psi.detach(), team_mask).item()
             logs["energy_adv"] = masked_mean(psi.detach(), ~team_mask).item()

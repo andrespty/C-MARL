@@ -35,15 +35,16 @@ def kkt_energy(probs: torch.Tensor, q: torch.Tensor, sign: torch.Tensor) -> torc
     return (phi ** 2).sum(-1)
 
 
-def soft_energy(probs: torch.Tensor, q: torch.Tensor, sign: torch.Tensor, tau: float) -> torch.Tensor:
+def soft_energy(log_probs: torch.Tensor, q: torch.Tensor, sign: torch.Tensor, tau: float) -> torch.Tensor:
     """Entropy-regularized version.  Optimal p = softmax(sign * q / tau), i.e.
         tau * log p(a) = sign * q(a) - V_tau,   V_tau = tau * logsumexp(sign * q / tau).
     Psi = sum_a (tau * log p(a) - (sign * q(a) - V_tau))^2.  Zero iff p is that softmax
     (a quantal response). Tends to a best response as tau -> 0.
+    log_probs: log p from log_softmax of the logits (not log of probs: that underflows).
     """
     sq = sign.unsqueeze(-1) * q
     v_tau = tau * torch.logsumexp(sq / tau, dim=-1, keepdim=True)
-    residual = tau * torch.log(probs.clamp_min(1e-12)) - (sq - v_tau)
+    residual = tau * log_probs - (sq - v_tau)
     return (residual ** 2).sum(-1)
 
 
@@ -55,3 +56,12 @@ def belief_average(q_profiles: torch.Tensor, profile_probs: torch.Tensor) -> tor
     returns       : (..., n_actions)
     """
     return (profile_probs.unsqueeze(-1) * q_profiles).sum(-2)
+
+
+def kl_energy(log_probs: torch.Tensor, q: torch.Tensor, sign: torch.Tensor, tau: float) -> torch.Tensor:
+    """Psi = tau * KL(p || softmax(sign * q / tau)): the soft exploitability gap, in reward units.
+    Zero iff p is the soft best response. Errors weighted by p, so unplayed actions barely count.
+    log_probs: log p from log_softmax of the logits.
+    """
+    log_p_star = torch.log_softmax(sign.unsqueeze(-1) * q / tau, dim=-1)
+    return tau * (log_probs.exp() * (log_probs - log_p_star)).sum(-1)

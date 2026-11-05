@@ -51,20 +51,3 @@ class QCritic(nn.Module):
         # time: (..., 1), fraction of the episode elapsed. Needed because returns depend on steps left.
         ids = torch.eye(self.n_agents, device=obs.device).expand(*obs.shape[:-1], self.n_agents)
         return self.net(torch.cat([obs, theta_ego.float(), ids, time], dim=-1))
-    
-    # ----- helpers on a computed q -----
-
-    @staticmethod
-    def taken(q: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
-        """Q of the actions actually played: q (..., A), actions (...,) -> (...,)."""
-        return q.gather(-1, actions.unsqueeze(-1)).squeeze(-1)
-
-    @staticmethod
-    def value(q: torch.Tensor, probs: torch.Tensor) -> torch.Tensor:
-        """V = sum_a pi(a) Q(a): (..., A) -> (...,)."""
-        return (probs * q).sum(-1)
-
-    @staticmethod
-    def advantage(q: torch.Tensor, probs: torch.Tensor) -> torch.Tensor:
-        """A(a) = Q(a) - V: (..., A)."""
-        return q - QCritic.value(q, probs).unsqueeze(-1)
