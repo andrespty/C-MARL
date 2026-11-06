@@ -22,8 +22,8 @@ eval_env = ByzantineEnv(ToyGame(num_envs=40, episode_length=T), SingleAdversary(
 
 belief = CategoricalBelief(env.spec, env.prior)
 # config = EnergyConfig(residual="soft", selection_coef=0.01, selection_decay_iters=N_ITERS // 2)
-# config = EnergyConfig(residual="soft", tau=1.0, selection_coef=0.01, selection_decay_iters=N_ITERS // 2)
-config = EnergyConfig(residual="soft", tau=0.3, selection_coef=0.1, selection_decay_iters=N_ITERS)
+config = EnergyConfig(residual="soft", tau=0.2, selection_coef=0.01, selection_decay_iters=N_ITERS // 2)
+# config = EnergyConfig(residual="soft", tau=0.2, selection_coef=0.1, selection_decay_iters=N_ITERS)
 print(config)
 algo = Energy(
     team=TeamPolicy(env.spec, belief_dim=belief.policy_dim, hidden_sizes=H),

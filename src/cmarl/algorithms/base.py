@@ -23,7 +23,7 @@ from cmarl.rollout import collect
 
 
 class Algorithm(ABC):
-
+    explore_eps: float = 0.0     # rollout exploration; subclasses may set it from their config
     def __init__(self, team: TeamPolicy, adversary: AdversaryPolicy, belief: Belief):
         self.team = team
         self.adversary = adversary
@@ -74,7 +74,7 @@ class Algorithm(ABC):
         self.best_score, self.best_state = -float("inf"), None
         for it in range(1, n_iters + 1):
             teacher_prob = max(0.0, 1 - (it - 1) / (n_iters / 2)) if teacher_forcing else 0.0
-            batch = collect(env, self.team, self.adversary, self.belief, teacher_prob)
+            batch = collect(env, self.team, self.adversary, self.belief, teacher_prob, self.explore_eps)
             logs = self.update(batch)
             logs.update(reward_stats(batch))
             if hasattr(env.prior, "record") and "reward_adv" in logs:

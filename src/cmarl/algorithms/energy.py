@@ -44,6 +44,7 @@ class EnergyConfig:
     selection_coef: float = 0.01      # team policy-gradient term (equilibrium selection)
     selection_decay_iters: int = 0    # linearly decay selection_coef to 0 over this many iterations (0 = no decay)
     max_grad_norm: float = 10.0
+    explore_eps: float = 0.05         # rollouts act with (1 - eps) * pi + eps * uniform: every action gets data
 
 
 class Energy(Algorithm):
@@ -54,6 +55,7 @@ class Energy(Algorithm):
         self.critic = critic
         self.cfg = config
         self.iteration = 0
+        self.explore_eps = config.explore_eps
         self.opt_policy = torch.optim.Adam(list(team.parameters()) + list(adversary.parameters()), lr=config.lr_policy)
         self.opt_critic = self.make_optimizer(critic, config.lr_critic)
         self.opt_belief = self.make_optimizer(belief, config.lr_belief)

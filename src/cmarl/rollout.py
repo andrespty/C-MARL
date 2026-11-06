@@ -9,6 +9,7 @@ No gradients here: training recomputes everything it needs from the Batch.
 """
 
 import torch
+from torch.distributions import Categorical
 
 from cmarl.agents.belief import Belief
 from cmarl.agents.policy import AdversaryPolicy, TeamPolicy
@@ -20,10 +21,19 @@ def adversary_act(adversary: AdversaryPolicy, obs: torch.Tensor, z: torch.Tensor
     """The adversary uses the belief only if it was built with belief_dim > 0."""
     return adversary.act(obs, z) if adversary.belief_dim > 0 else adversary.act(obs)
 
+def sample_explore(dist: Categorical, epsilon: float) -> tuple[torch.Tensor, torch.Tensor]:
+    """Sample from the mixture (1 - epsilon) * pi + epsilon * uniform, so every action keeps
+    being tried. Returns (actions, log-prob of those actions under the mixture)."""
+    probs = dist.probs
+    if epsilon > 0:
+        probs = (1 - epsilon) * probs + epsilon / probs.shape[-1]
+    mixed = Categorical(probs=probs)
+    actions = mixed.sample()
+    return actions, mixed.log_prob(actions)
 
 @torch.no_grad()
 def collect(env: ByzantineEnv, team: TeamPolicy, adversary: AdversaryPolicy, belief: Belief,
-            teacher_prob: float = 0.0) -> Batch:
+            teacher_prob: float = 0.0, epsilon: float = 0.0) -> Batch:
     """teacher_prob: probability, per step, of replacing the belief by the true types
     (teacher forcing, as in the official EIR-MAPPO code). 0 = off."""
     B, N = env.num_envs, env.spec.n_agents
@@ -41,8 +51,9 @@ def collect(env: ByzantineEnv, team: TeamPolicy, adversary: AdversaryPolicy, bel
         if teacher_prob > 0 and torch.rand(()).item() < teacher_prob:
             z = belief.true_input(theta)                         # teacher forcing: the truth, not the belief
 
-        team_a, team_lp = team.act(r.obs, z)                     # (B, N), (B, N)
-        adv_a, adv_lp = adversary_act(adversary, r.obs, z)
+        adv_inputs = (r.obs, z) if adversary.belief_dim > 0 else (r.obs,)
+        team_a, team_lp = sample_explore(team.distribution(r.obs, z), epsilon)        # (B, N), (B, N)
+        adv_a, adv_lp = sample_explore(adversary.distribution(*adv_inputs), epsilon)
 
         nxt = env.step(team_a, adv_a)
         logp = torch.where(theta == 1, adv_lp, team_lp)          # log-prob of what was executed

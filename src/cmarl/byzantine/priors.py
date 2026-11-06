@@ -129,3 +129,15 @@ class AdaptiveSingleAdversary(SingleAdversary):
         """Call once per iteration with the mean reward of attacked episodes."""
         r = self.attacked_reward
         r[self.current] = self.momentum * r[self.current] + (1 - self.momentum) * reward_adv
+
+class FixedAdversary(TypePrior):
+    """Always the same compromised agent, every episode (the paper's attack evaluation)."""
+
+    def __init__(self, n_agents: int, agent: int):
+        self.agent = agent
+        super().__init__(n_agents)
+
+    def _build(self):
+        support = torch.zeros(1, self.n_agents, dtype=torch.long)
+        support[0, self.agent] = 1
+        return support, torch.ones(1)
