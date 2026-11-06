@@ -1,198 +1,159 @@
-\documentclass[aspectratio=169,11pt]{beamer}
+\documentclass[11pt]{article}
 
-\usetheme{Madrid}
-\usecolortheme{default}
-\setbeamertemplate{navigation symbols}{}
-
+\usepackage[margin=1in]{geometry}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
+\usepackage{enumitem}
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta,positioning,shapes.geometric}
+\usetikzlibrary{arrows.meta,positioning}
+\usepackage{hyperref}
 
 \newcommand{\E}{\mathbb{E}}
 
-\title[Robust c-MARL]{Belief-Based Robust Cooperative MARL}
-\subtitle{Context, the game, and the EIR-MAPPO algorithm}
+\title{Belief-Based Robust Cooperative MARL:\\Context, the Game, and the EIR-MAPPO Algorithm}
 \author{Andres Ho}
 \date{\today}
 
 \begin{document}
-
-% ------------------------------------------------------------
-\begin{frame}
-  \titlepage
-\end{frame}
-
-\begin{frame}{Outline}
-  \tableofcontents
-\end{frame}
+\maketitle
 
 % ============================================================
 \section{Context}
 % ============================================================
 
-\begin{frame}{Cooperative MARL and the Byzantine threat}
-  \begin{itemize}
-    \item A \textbf{team} of agents shares one reward and must coordinate.
-    \item \textbf{Byzantine failure:} one agent is compromised (hacked, faulty) and
-          acts \emph{against} the team.
-    \item Nobody knows \textbf{which} agent it is.
-  \end{itemize}
-  \vspace{1em}
-  \begin{center}
-  \begin{tikzpicture}[agent/.style={circle,draw,thick,minimum size=1cm}]
-    \node[agent,fill=blue!15] (a1) {$1$};
-    \node[agent,fill=blue!15,right=1.5cm of a1] (a2) {$2$};
-    \node[agent,fill=red!25,right=1.5cm of a2] (a3) {$3$};
-    \node[above=0.1cm of a3] {\textbf{?}};
-    \draw[thick,<->] (a1) -- (a2);
-    \draw[thick,<->] (a2) -- (a3);
-    \node[below=0.4cm of a2] {shared reward};
-  \end{tikzpicture}
-  \end{center}
-\end{frame}
+In cooperative multi-agent reinforcement learning (c-MARL), a team of agents shares a
+single reward and must learn to coordinate. Most methods assume that every teammate
+follows the learned cooperative policy. In practice an agent can be compromised
+(hacked or faulty) and act against the team, a \emph{Byzantine} failure. The difficulty
+is that nobody knows \emph{which} agent is compromised.
 
-\begin{frame}{Three ways to defend}
-  \begin{enumerate}
-    \item \textbf{Ignore it.} One bad agent collapses the team.\\
-          {\small (MAPPO under a worst-case attack on the toy game: 4.75 out of 50.)}
-    \vspace{0.5em}
-    \item \textbf{Assume everyone might be bad} (\emph{ex ante}).\\
-          Robust, but too pessimistic: cooperation suffers.
-    \vspace{0.5em}
-    \item \textbf{Infer who is bad, then act on it} (\emph{ex interim}).\\
-          Each agent keeps a \textbf{belief} about its teammates and defends only when
-          the evidence says so.
-  \end{enumerate}
-  \vspace{1em}
-  \begin{block}{This work builds on}
-    Li et al., \emph{Byzantine Robust Cooperative MARL as a Bayesian Game}, ICLR 2024
-    (\textbf{EIR-MAPPO}).
-  \end{block}
-\end{frame}
+There are three ways to respond:
+\begin{enumerate}
+  \item \textbf{Ignore it.} A single bad agent can collapse the team. Under a worst-case
+        attack on the toy game below, standard MAPPO obtains 4.75 out of a possible 50
+        per episode.
+  \item \textbf{Assume everyone might be bad} (\emph{ex ante} robustness). This is robust
+        but pessimistic: cooperation suffers even when nobody is compromised.
+  \item \textbf{Infer who is bad, then act on it} (\emph{ex interim} robustness). Each agent
+        keeps a \emph{belief} about its teammates and defends only when the evidence
+        supports it.
+\end{enumerate}
+This work builds on the third approach, introduced by Li et al.\ (ICLR 2024),
+\emph{Byzantine Robust Cooperative Multi-Agent Reinforcement Learning as a Bayesian Game},
+and their algorithm EIR-MAPPO.
 
 % ============================================================
 \section{The game}
 % ============================================================
 
-\begin{frame}{The toy game (Han et al., 2022)}
-  \begin{columns}[T]
-    \column{0.5\textwidth}
-      \begin{itemize}
-        \item 2 agents, 2 actions $\{0,1\}$, 2 states.
-        \item Both agents observe the state.
-        \item Episodes last 100 steps.
-      \end{itemize}
-      \vspace{0.5em}
-      \textbf{Reward} (shared):
-      \vspace{0.3em}
+\subsection{The toy game}
+We use the toy coordination game of Han et al.\ (2022), also used by Li et al. There are
+two agents, two actions $\{0,1\}$ per agent, and two states. Both agents observe the state,
+and each episode lasts 100 steps.
 
-      \begin{tabular}{c|cc}
-        $s_0$ (XNOR) & $0$ & $1$ \\ \hline
-        $0$ & \textbf{1} & 0 \\
-        $1$ & 0 & \textbf{1}
-      \end{tabular}
-      \hspace{1em}
-      \begin{tabular}{c|cc}
-        $s_1$ (XOR) & $0$ & $1$ \\ \hline
-        $0$ & 0 & \textbf{1} \\
-        $1$ & \textbf{1} & 0
-      \end{tabular}
+\begin{itemize}
+  \item In state $s_0$ (XNOR) the team receives reward 1 if the agents \textbf{agree}.
+  \item In state $s_1$ (XOR) the team receives reward 1 if the agents \textbf{differ}.
+  \item Agreeing flips the state; differing keeps it (Figure~\ref{fig:toy}).
+\end{itemize}
 
-      \vspace{0.5em}
-      {\small $s_0$: reward if agents \textbf{agree}. \quad $s_1$: reward if they \textbf{differ}.}
-    \column{0.5\textwidth}
-      \textbf{Transitions:} agreeing flips the state, differing keeps it.
-      \vspace{0.5em}
-      \begin{center}
-      \begin{tikzpicture}[st/.style={circle,draw,thick,minimum size=1.1cm}, >=Stealth]
-        \node[st] (s0) {$s_0$};
-        \node[st,right=2.5cm of s0] (s1) {$s_1$};
-        \draw[->,thick] (s0) to[bend left=25] node[above] {agree} (s1);
-        \draw[->,thick] (s1) to[bend left=25] node[below] {agree} (s0);
-        \draw[->,thick] (s0) to[loop left] node[left] {differ} (s0);
-        \draw[->,thick] (s1) to[loop right] node[right] {differ} (s1);
-      \end{tikzpicture}
-      \end{center}
-  \end{columns}
-\end{frame}
+\begin{figure}[h]
+  \centering
+  \begin{minipage}{0.45\textwidth}
+    \centering
+    \begin{tabular}{c|cc}
+      $s_0$ & $0$ & $1$ \\ \hline
+      $0$ & 1 & 0 \\
+      $1$ & 0 & 1
+    \end{tabular}
+    \hspace{1.5em}
+    \begin{tabular}{c|cc}
+      $s_1$ & $0$ & $1$ \\ \hline
+      $0$ & 0 & 1 \\
+      $1$ & 1 & 0
+    \end{tabular}
+  \end{minipage}
+  \begin{minipage}{0.45\textwidth}
+    \centering
+    \begin{tikzpicture}[st/.style={circle,draw,thick,minimum size=1cm}, >=Stealth]
+      \node[st] (s0) {$s_0$};
+      \node[st,right=2.2cm of s0] (s1) {$s_1$};
+      \draw[->,thick] (s0) to[bend left=25] node[above] {agree} (s1);
+      \draw[->,thick] (s1) to[bend left=25] node[below] {agree} (s0);
+      \draw[->,thick] (s0) to[loop left] node[left] {differ} (s0);
+      \draw[->,thick] (s1) to[loop right] node[right] {differ} (s1);
+    \end{tikzpicture}
+  \end{minipage}
+  \caption{Left: shared reward in each state (rows: agent 1's action, columns: agent 2's
+  action). Right: state transitions.}
+  \label{fig:toy}
+\end{figure}
 
-\begin{frame}{Clean play vs.\ play under attack}
-  \begin{columns}[T]
-    \column{0.5\textwidth}
-      \textbf{No adversary}
-      \begin{itemize}
-        \item Optimal: agree in $s_0$, differ in $s_1$.
-        \item Reward \textbf{1.0 per step} (100 per episode).
-        \item Needs the two agents to take \textbf{different roles} in $s_1$.
-      \end{itemize}
-    \column{0.5\textwidth}
-      \textbf{One agent is the adversary}
-      \begin{itemize}
-        \item The game becomes \textbf{matching pennies}.
-        \item Any predictable (deterministic) play is exploited: reward $\to 0$.
-        \item Best defense: play \textbf{50/50}, which guarantees
-              \textbf{0.5 per step} (50 per episode).
-      \end{itemize}
-  \end{columns}
-  \vspace{1em}
-  \begin{alertblock}{Robustness here means}
-    Coordinate perfectly when the partner is honest, and \textbf{randomize}
-    exactly when the partner is the adversary. This requires knowing \emph{who} it is.
-  \end{alertblock}
-\end{frame}
+\paragraph{Clean play.} Without an adversary, the optimal strategy is to agree in $s_0$ and
+differ in $s_1$, which earns reward 1 per step (100 per episode). Differing in $s_1$
+requires the two agents to take different roles.
 
-\begin{frame}{The Bayesian game}
-  \begin{itemize}
-    \item \textbf{Hidden types} $\theta^i \in \{0,1\}$: $1$ = compromised. Drawn at the start
-          of each episode, fixed for the episode, unknown to the other agents.
-    \item \textbf{Prior} (fixed during training):
-      \[
-        p(\theta = \mathbf{0}) = 0.5, \qquad p(\theta = \mathbf{1}_i) = \frac{0.5}{N}.
-      \]
-      {\small Half the episodes are clean; the other half have exactly one adversary.}
-    \item \textbf{Corruption:} the executed action of agent $i$ is
-      \[
-        \bar a^i =
-        \begin{cases}
-          \hat a^i \ (\text{adversary's action}) & \theta^i = 1\\
-          a^i \ (\text{team's action}) & \theta^i = 0
-        \end{cases}
-      \]
-    \item \textbf{Belief:} each agent infers the types from what it observes,
-      \[
-        b^i_t = p(\theta \mid H^i_t), \qquad H^i_t = \text{history of observations and actions}.
-      \]
-  \end{itemize}
-\end{frame}
+\paragraph{Play under attack.} If one agent is the adversary, the game becomes
+\emph{matching pennies}: the honest agent wants to match (in $s_0$) or mismatch (in $s_1$)
+the adversary, and the adversary wants the opposite. Any predictable strategy is exploited
+and its reward drops toward 0. The best defense is to play each action with probability
+$1/2$, which guarantees an expected reward of $0.5$ per step (50 per episode).
+Robustness in this game therefore means: coordinate when the partner is honest, and
+randomize exactly when the partner is the adversary. This requires knowing \emph{who} the
+adversary is.
 
-\begin{frame}{Solution concept: ex interim robust equilibrium}
-  \begin{itemize}
-    \item \textbf{Team:} each cooperative agent best-responds given its \textbf{belief}.
-    \item \textbf{Adversary:} best-responds to the team (worst case: minimizes the team reward).
-    \item \textbf{Beliefs:} consistent with Bayes' rule.
-  \end{itemize}
-  \vspace{0.5em}
-  \[
-    \max_{\text{team}} \ \min_{\text{adversary}} \
-    \E_{\theta \sim b}\big[\text{team return}\big]
-  \]
-  \vspace{0.5em}
-  \begin{block}{Key fact}
-    It is a \textbf{saddle point}: the team maximizes, the adversary minimizes the
-    same quantity. Training therefore has two players pulling in opposite directions.
-  \end{block}
-\end{frame}
+\subsection{The Bayesian game}
+\begin{itemize}
+  \item \textbf{Hidden types.} Each agent has a type $\theta^i \in \{0,1\}$, where $1$ means
+        compromised. Types are drawn at the start of each episode, stay fixed for the
+        episode, and are not observed by the other agents.
+  \item \textbf{Prior.} Kept fixed during training:
+        \[
+          p(\theta = \mathbf{0}) = 0.5, \qquad
+          p(\theta = \mathbf{1}_i) = \frac{0.5}{N} \quad \text{for each agent } i.
+        \]
+        Half of the episodes are clean, and the other half have exactly one adversary.
+  \item \textbf{Corruption.} The action executed for agent $i$ is
+        \[
+          \bar a^i =
+          \begin{cases}
+            \hat a^i & \text{(the adversary's action) if } \theta^i = 1,\\
+            a^i & \text{(the team's action) if } \theta^i = 0.
+          \end{cases}
+        \]
+  \item \textbf{Belief.} Each agent infers the types from its history
+        $H^i_t$ of observations and actions:
+        \[
+          b^i_t = p(\theta \mid H^i_t).
+        \]
+\end{itemize}
+
+\subsection{Solution concept}
+Li et al.\ define an \emph{ex interim robust equilibrium}:
+\begin{itemize}
+  \item each cooperative agent best-responds given its \textbf{belief},
+  \item the adversary best-responds to the team in the worst case, i.e.\ it minimizes the
+        team's reward,
+  \item beliefs are consistent with Bayes' rule.
+\end{itemize}
+Informally,
+\[
+  \max_{\text{team}} \ \min_{\text{adversary}} \ \E_{\theta \sim b}\big[\text{team return}\big].
+\]
+This is a \emph{saddle point}: the team maximizes and the adversary minimizes the same
+quantity, so training has two players pulling in opposite directions.
 
 % ============================================================
-\section{EIR-MAPPO}
+\section{The EIR-MAPPO algorithm}
 % ============================================================
 
-\begin{frame}{The four networks}
+\subsection{The four networks}
+
+\begin{table}[h]
   \centering
   \begin{tabular}{@{}llll@{}}
     \toprule
-    Network & Input & Output & Used at test time? \\
+    Network & Input & Output & Kept at test time \\
     \midrule
     Team policy $\pi_\phi$ & observation, belief, agent ID & action probabilities & yes \\
     Adversary $\hat\pi_{\hat\phi}$ & observation, agent ID & action probabilities & no \\
@@ -200,150 +161,87 @@
     Belief $p_\xi$ (GRU) & history of observations & P(each agent is the adversary) & yes \\
     \bottomrule
   \end{tabular}
-  \vspace{1em}
-  \begin{itemize}
-    \item One team network is \textbf{shared} by all agents; the agent ID lets them take
-          different roles.
-    \item The critic and the adversary are training tools only.
-  \end{itemize}
-\end{frame}
+  \caption{Networks used by EIR-MAPPO.}
+\end{table}
 
-\begin{frame}{One training iteration: overview}
-  \centering
-  \begin{tikzpicture}[blk/.style={rectangle,rounded corners,draw,thick,minimum width=2.6cm,minimum height=0.9cm,align=center}, >=Stealth]
-    \node[blk,fill=gray!15] (b1) {1. Play\\(rollout)};
-    \node[blk,fill=gray!15,right=0.8cm of b1] (b2) {2. Score\\(advantage)};
-    \node[blk,fill=blue!15,right=1.2cm of b2,yshift=1.2cm] (b3) {3. Team};
-    \node[blk,fill=red!20,right=1.2cm of b2,yshift=0.0cm] (b4) {4. Adversary};
-    \node[blk,fill=green!15,right=1.2cm of b2,yshift=-1.2cm] (b5) {5. Critic};
-    \node[blk,fill=yellow!20,below=0.8cm of b1] (b6) {6. Belief};
-    \draw[->,thick] (b1) -- (b2);
-    \draw[->,thick] (b2.east) -- (b3.west);
-    \draw[->,thick] (b2.east) -- (b4.west);
-    \draw[->,thick] (b2.east) -- (b5.west);
-    \draw[->,thick] (b1) -- (b6);
-  \end{tikzpicture}
-  \vspace{0.8em}
+One team network is shared by all agents; the agent ID lets the agents take different
+roles. The critic and the adversary are only used during training.
 
-  \textbf{7. Schedule:} the adversary updates every iteration; the team, critic and belief
-  every 10th iteration.
-\end{frame}
+\subsection{One training iteration}
+Each iteration consists of the following blocks. Blocks 3--6 all use the batch collected
+in Block 1, and Block 7 decides which of them run.
 
-\begin{frame}{Block 1 --- Play (rollout)}
-  \begin{description}[What it does]
-    \item[What it does] Plays the game with the current networks.
-    \item[Output] A batch of episodes: 10 parallel games $\times$ 200 steps.
-  \end{description}
-  \vspace{0.5em}
-  \textbf{At every step, for every agent $i$:}
-  \begin{enumerate}
-    \item Update the belief: $b^i_t = p_\xi(\theta \mid H^i_t)$.
-    \item Team proposes an action: $a^i_t \sim \pi_\phi(\cdot \mid o^i_t, b^i_t)$.
-    \item Adversary proposes an action: $\hat a^i_t \sim \hat\pi_{\hat\phi}(\cdot \mid o^i_t)$.
-    \item The traitor's action is replaced: execute $\hat a^i_t$ if $\theta^i = 1$, else $a^i_t$.
-    \item The game returns one shared reward $r_t$ and the next state.
-  \end{enumerate}
-  \vspace{0.5em}
-  \textbf{Stored:} observations, beliefs, actions, rewards, true types $\theta$.
-\end{frame}
+\paragraph{Block 1: Play (rollout).}
+The current networks play 10 parallel games for 200 steps. At every step, for every agent
+$i$:
+\begin{enumerate}[nosep]
+  \item the belief is updated, $b^i_t = p_\xi(\theta \mid H^i_t)$;
+  \item the team proposes an action $a^i_t \sim \pi_\phi(\cdot \mid o^i_t, b^i_t)$;
+  \item the adversary proposes an action $\hat a^i_t \sim \hat\pi_{\hat\phi}(\cdot \mid o^i_t)$;
+  \item the compromised agent's action is replaced: $\hat a^i_t$ is executed if
+        $\theta^i = 1$, otherwise $a^i_t$;
+  \item the game returns a shared reward $r_t$ and the next state.
+\end{enumerate}
+Observations, beliefs, actions, rewards and the true types $\theta$ are stored.
 
-\begin{frame}{Block 2 --- Score the actions (advantage)}
-  \begin{description}[What it does]
-    \item[What it does] Says whether what happened was better or worse than expected.
-    \item[Input] Rewards and the critic's predictions.
-    \item[Output] A number $A_t$ for every step: $A_t > 0$ better, $A_t < 0$ worse.
-  \end{description}
-  \vspace{0.5em}
-  \textbf{How} (generalized advantage estimation, GAE):
-  \[
-    \delta_t = r_t + \gamma\, V_\psi(s_{t+1}) - V_\psi(s_t),
-    \qquad
-    A_t = \sum_{l \ge 0} (\gamma\lambda)^l\, \delta_{t+l}
-  \]
-  {\small $\delta_t$: one-step surprise (reward received $-$ reward expected).
-   $A_t$: surprise averaged over the next steps. $\gamma = 0.99$, $\lambda = 0.95$.}
-  \vspace{0.5em}
-  \begin{itemize}
-    \item The critic sees the \textbf{belief}, so $A_t$ means
-          ``better than expected \emph{given what the agent believes}''.
-    \item The \textbf{same} $A_t$ is used by the team (Block 3) and the adversary (Block 4).
-  \end{itemize}
-\end{frame}
+\paragraph{Block 2: Score the actions (advantage).}
+For every step the algorithm computes whether the outcome was better or worse than the
+critic expected, using generalized advantage estimation (GAE):
+\[
+  \delta_t = r_t + \gamma\, V_\psi(s_{t+1}) - V_\psi(s_t),
+  \qquad
+  A_t = \sum_{l \ge 0} (\gamma\lambda)^l\, \delta_{t+l},
+\]
+with $\gamma = 0.99$ and $\lambda = 0.95$. Here $\delta_t$ is the one-step surprise
+(reward received minus reward expected), and $A_t$ averages it over the following steps:
+$A_t > 0$ means better than expected, $A_t < 0$ worse. Because the critic is conditioned on
+the belief, $A_t$ measures ``better than expected given what the agent believes.'' The same
+$A_t$ is used by the team (Block 3) and the adversary (Block 4).
 
-\begin{frame}{Block 3 --- Update the team}
-  \begin{description}[What it does]
-    \item[What it does] Makes the team better at cooperating under attack.
-    \item[Data used] Only steps where the agent was \textbf{honest} ($\theta^i = 0$).
-  \end{description}
-  \vspace{0.5em}
-  \textbf{Idea:} do more of the actions that scored well ($A > 0$), less of the others.
-  \[
-    \max_\phi \ \E\big[(1-\theta^i)\,\log \pi_\phi(a^i_t \mid o^i_t, b^i_t)\; A_t\big]
-  \]
-  \textbf{In practice (PPO):}
-  \begin{itemize}
-    \item Small, safe steps: the probability of an action may change by at most
-          $\pm 5\%$ per update (clip $= 0.05$).
-    \item Entropy bonus ($0.01$): keeps exploring.
-    \item 5 passes (epochs) over the batch.
-  \end{itemize}
-\end{frame}
+\paragraph{Block 3: Update the team.}
+The team should do more of the actions that scored well and less of the others. Only the
+steps where the agent was honest ($\theta^i = 0$) are used:
+\[
+  \max_\phi \ \E\big[(1-\theta^i)\,\log \pi_\phi(a^i_t \mid o^i_t, b^i_t)\; A_t\big].
+\]
+In practice this is optimized with PPO: the probability of an action may change by at most
+about 5\% per update (clip $=0.05$), an entropy bonus ($0.01$) keeps the policy exploring,
+and the batch is used for 5 passes (epochs).
 
-\begin{frame}{Block 4 --- Update the adversary}
-  \begin{description}[What it does]
-    \item[What it does] Makes the adversary better at hurting the team.
-    \item[Data used] Only steps where the agent was the \textbf{traitor} ($\theta^i = 1$).
-  \end{description}
-  \vspace{0.5em}
-  \textbf{Idea:} the same as Block 3 with the sign flipped: do more of whatever
-  \textbf{hurt} the team.
-  \[
-    \max_{\hat\phi} \ \E\big[\theta^i\, \log \hat\pi_{\hat\phi}(\hat a^i_t \mid o^i_t)\; (-A_t)\big]
-  \]
-  \begin{itemize}
-    \item Same PPO settings as the team (clip $0.05$, entropy $0.01$, 5 epochs).
-    \item \textbf{Why:} the team must train against a strong attacker to become robust.
-  \end{itemize}
-\end{frame}
+\paragraph{Block 4: Update the adversary.}
+The adversary uses the same rule with the sign flipped: it does more of whatever
+\emph{hurt} the team. Only the steps where the agent was compromised ($\theta^i = 1$) are
+used:
+\[
+  \max_{\hat\phi} \ \E\big[\theta^i\, \log \hat\pi_{\hat\phi}(\hat a^i_t \mid o^i_t)\; (-A_t)\big],
+\]
+with the same PPO settings as the team. The team needs a strong attacker to train against
+in order to become robust.
 
-\begin{frame}{Block 5 --- Update the critic}
-  \begin{description}[What it does]
-    \item[What it does] Improves the reward predictions used in Block 2.
-    \item[Input] Observation and belief.
-    \item[Target] The reward that actually followed (discounted).
-  \end{description}
-  \vspace{0.5em}
-  \[
-    \min_\psi \ \E\Big[\big(V_\psi(o^i_t, b^i_t) - \text{actual return}_t\big)^2\Big]
-  \]
-  \textbf{In practice:}
-  \begin{itemize}
-    \item Huber loss (robust to outliers) and normalized targets (PopArt).
-    \item Small steps: the value may move by at most a fixed amount per update.
-    \item \textbf{Why:} a better critic $\Rightarrow$ better advantages
-          $\Rightarrow$ better updates for both players.
-  \end{itemize}
-\end{frame}
+\paragraph{Block 5: Update the critic.}
+The critic is trained to predict the discounted reward that actually followed:
+\[
+  \min_\psi \ \E\Big[\big(V_\psi(o^i_t, b^i_t) - \text{return}_t\big)^2\Big].
+\]
+In practice a Huber loss is used, targets are normalized (PopArt), and the change in the
+predicted value per update is limited. A better critic gives better advantages in Block 2,
+and therefore better updates for both players.
 
-\begin{frame}{Block 6 --- Update the belief}
-  \begin{description}[What it does]
-    \item[What it does] Improves each agent's guess of who the traitor is.
-    \item[Input] The agent's history of observations and actions (GRU).
-    \item[Target] The \textbf{true} types (known during training).
-  \end{description}
-  \vspace{0.5em}
-  \[
-    \min_\xi \ \E\Big[-\theta \log p_\xi(\theta \mid H^i_t) - (1-\theta)\log\big(1 - p_\xi(\theta \mid H^i_t)\big)\Big]
-  \]
-  {\small (binary cross-entropy)}
-  \vspace{0.5em}
-  \begin{block}{Why a supervised loss gives a Bayesian belief}
-    The best possible answer under this loss is the true posterior $P(\theta \mid H)$.
-    The network learns Bayes-consistent beliefs without ever computing Bayes' rule.
-  \end{block}
-\end{frame}
+\paragraph{Block 6: Update the belief.}
+The belief network (a GRU over the agent's history) is trained with the true types, which
+are known during training, using binary cross-entropy:
+\[
+  \min_\xi \ \E\Big[-\theta \log p_\xi(\theta \mid H^i_t)
+    - (1-\theta)\log\big(1 - p_\xi(\theta \mid H^i_t)\big)\Big].
+\]
+The best possible predictor under this loss is the true posterior $P(\theta \mid H)$, so the
+network learns Bayes-consistent beliefs without ever computing Bayes' rule explicitly.
 
-\begin{frame}{Block 7 --- The schedule (two timescales)}
+\paragraph{Block 7: The schedule (two timescales).}
+The adversary is updated on every iteration, while the team, critic and belief are updated
+only on every 10th iteration:
+
+\begin{table}[h]
   \centering
   \begin{tabular}{@{}lcc@{}}
     \toprule
@@ -353,49 +251,43 @@
     $k \bmod 10 = 0$ & update & update \\
     \bottomrule
   \end{tabular}
-  \vspace{1em}
-  \begin{itemize}
-    \item \textbf{Why:} the adversary stays close to the strongest attack, so the team always
-          trains against a near worst case. This is the basis of their convergence argument.
-    \item Equal learning rates; the timescale comes from \textbf{update frequency}
-          (faster adversary learning rates were unstable).
-  \end{itemize}
-  \vspace{0.5em}
-  \begin{alertblock}{The catch}
-    In practice the two players still \textbf{chase each other in circles}
-    (matching pennies): the motivation for our method.
-  \end{alertblock}
-\end{frame}
+  \caption{Two-timescale schedule.}
+\end{table}
 
-\begin{frame}{Recap: the training loop in one line per block}
-  \begin{enumerate}
-    \item \textbf{Play:} collect episodes with the current networks.
-    \item \textbf{Score:} was each step better or worse than expected?
-    \item \textbf{Team:} do more of what helped.
-    \item \textbf{Adversary:} do more of what hurt.
-    \item \textbf{Critic:} predict rewards better.
-    \item \textbf{Belief:} guess the traitor better.
-    \item \textbf{Schedule:} adversary every iteration, the rest every 10th.
-  \end{enumerate}
-\end{frame}
+The adversary therefore stays close to the strongest attack, and the team always trains
+against a near worst case; this is the basis of the paper's convergence argument. The
+learning rates are equal for both players, and the different timescales come from the
+update frequency (the authors report that faster adversary learning rates were unstable).
+In practice, however, the two players can still chase each other in circles, as is typical
+of matching pennies. This is the motivation for our method.
 
-\begin{frame}{How they evaluate robustness}
-  \begin{enumerate}
-    \item Train the team with \textbf{5 seeds}.
-    \item For each seed and each agent $i$: \textbf{freeze} the team (policy and belief) and
-          train a \textbf{fresh} PPO adversary that always controls agent $i$.
-    \item Record the team's reward per episode under that attack.
-    \item Report the mean over the $5 \times N$ attacks.
-  \end{enumerate}
-  \vspace{0.8em}
-  \begin{block}{Their result on the toy game (Fig.\ 6, worst case)}
-    EIR-MAPPO: \textbf{44.14} out of a maximum of 50 per episode.
-  \end{block}
-\end{frame}
+\subsection{Summary of the training loop}
+\begin{enumerate}[nosep]
+  \item \textbf{Play:} collect episodes with the current networks.
+  \item \textbf{Score:} was each step better or worse than expected?
+  \item \textbf{Team:} do more of what helped.
+  \item \textbf{Adversary:} do more of what hurt.
+  \item \textbf{Critic:} predict rewards better.
+  \item \textbf{Belief:} guess the compromised agent better.
+  \item \textbf{Schedule:} the adversary every iteration, the rest every 10th.
+\end{enumerate}
 
-\begin{frame}{Hyperparameters (toy game, Table 1)}
+\subsection{Evaluation protocol}
+Robustness is measured as follows:
+\begin{enumerate}[nosep]
+  \item the team is trained with 5 random seeds;
+  \item for each seed and each agent $i$, the team (policy and belief) is frozen and a fresh
+        PPO adversary that always controls agent $i$ is trained against it;
+  \item the team's reward per episode under that attack is recorded;
+  \item the result is the mean over the $5 \times N$ attacks.
+\end{enumerate}
+On the toy game, EIR-MAPPO obtains \textbf{44.14} out of a maximum of 50 per episode under
+this worst-case attack (Fig.~6 of the paper).
+
+\subsection{Hyperparameters}
+
+\begin{table}[h]
   \centering
-  \small
   \begin{tabular}{@{}llll@{}}
     \toprule
     Parameter & Value & Parameter & Value \\
@@ -410,6 +302,7 @@
     adversary interval & 10 & output layer gain & 0.01 \\
     \bottomrule
   \end{tabular}
-\end{frame}
+  \caption{EIR-MAPPO hyperparameters for the toy game (Table 1 of the paper).}
+\end{table}
 
 \end{document}
